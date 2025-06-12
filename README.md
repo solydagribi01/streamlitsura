@@ -1,5 +1,4 @@
-# streamlitsura
-código bases de datos avisos
+
 streamlit
 pandas
 matplotlib
