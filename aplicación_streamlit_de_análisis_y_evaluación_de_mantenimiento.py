@@ -58,6 +58,19 @@ with st.container():
         for df_temp in (iw29, iw39, ih08, iw65, zpm015):
             df_temp.columns = [normalize_string(col) for col in df_temp.columns]
 
+        # DEBUG: Mostrar columnas de cada hoja después de la carga inicial y normalización
+        st.info(f"Columnas de IW29 (normalizadas): {iw29.columns.tolist()}")
+        st.info(f"Columnas de IW39 (normalizadas): {iw39.columns.tolist()}")
+        st.info(f"Columnas de IH08 (normalizadas): {ih08.columns.tolist()}")
+        st.info(f"Columnas de IW65 (normalizadas): {iw65.columns.tolist()}")
+        st.info(f"Columnas de ZPM015 (normalizadas): {zpm015.columns.tolist()}")
+        
+        # Verificar la presencia de columnas críticas después de la carga individual
+        if 'denominacion_de_objeto_tecnico' not in ih08.columns:
+            st.warning("La columna 'denominacion_de_objeto_tecnico' no se encontró en la hoja IH08. Asegúrate de que el nombre sea correcto.")
+        if 'total_general_real' not in iw39.columns:
+            st.warning("La columna 'total_general_real' no se encontró en la hoja IW39. Asegúrate de que el nombre sea correcto.")
+
         # Asegurar que 'aviso' y 'equipo' son tratados como texto si contienen valores mixtos
         if 'aviso' in iw29.columns: iw29['aviso'] = iw29['aviso'].astype(str)
         if 'equipo' in iw29.columns: iw29['equipo'] = iw29['equipo'].astype(str)
@@ -67,7 +80,6 @@ with st.container():
         if 'equipo' in zpm015.columns: zpm015['equipo'] = zpm015['equipo'].astype(str)
 
         # Usar nombres de columnas normalizados para la selección y fusión
-        # Asegúrate de que las columnas existan antes de seleccionarlas para evitar KeyError
         # Define una función helper para obtener columnas de forma segura
         def get_cols_if_exist(df, cols_list):
             return [col for col in cols_list if col in df.columns]
@@ -111,7 +123,7 @@ with st.container():
             "aviso", "orden", "fecha_de_aviso", "codigo_postal", "status_del_sistema",
             "descripcion", "ubicacion_tecnica", "indicador", "equipo",
             "denominacion_de_objeto_tecnico", "denominacion_ejecutante", "duracion_de_parada",
-            "centro_de_coste", "costes_totreales", "inic_garantia_prov", "fin_garantia_prov", # CORRECCIÓN: 'costes_totreales'
+            "centro_de_coste", "costes_totreales", "inic_garantia_prov", "fin_garantia_prov", 
             "texto_equipo", "indicador_abc", "texto_codigo_accion", "texto_de_accion",
             "texto_grupo_accion", "tipo_de_servicio"
         ]
@@ -122,7 +134,11 @@ with st.container():
         # Advertencia si alguna columna crítica no se encuentra en este punto
         for col_expected in ["denominacion_de_objeto_tecnico", "costes_totreales"]:
             if col_expected not in columnas_finales:
-                st.warning(f"La columna crítica '{col_expected}' no se encontró después de la fusión inicial en load_and_merge_data. Por favor, revisa el nombre de la columna en tus archivos Excel.")
+                st.warning(f"La columna crítica '{col_expected}' no se encontró después de la fusión en load_and_merge_data. Esto podría afectar el análisis. Por favor, revisa el nombre de la columna en tus archivos Excel originales o si se perdieron datos en las fusiones.")
+            
+            # DEBUG: Mostrar el conteo de nulos para las columnas críticas después de las fusiones
+            if col_expected in tmp4.columns:
+                st.info(f"Conteo de nulos en '{col_expected}' después de las fusiones en load_and_merge_data: {tmp4[col_expected].isnull().sum()}")
 
         return tmp4[columnas_finales]
 
@@ -130,51 +146,24 @@ with st.container():
     def process_data(df: pd.DataFrame) -> pd.DataFrame:
         """
         Realiza filtrado, ajuste de costos y normalización de columnas en el DataFrame.
+        Asume que el DataFrame de entrada ya tiene columnas normalizadas.
         """
-        # Define el mapeo de columnas proporcionado por el usuario
-        # Las claves deben coincidir con los nombres de las columnas que salen de load_and_merge_data
-        user_column_mapping = {
-            "Denominación ejecutante": "denominacion_ejecutante",
-            "Código postal": "codigo_postal",
-            "Denominación de objeto técnico": "denominacion_de_objeto_tecnico",
-            "Texto código acción": "texto_codigo_accion",
-            "Texto de acción": "texto_de_accion",
-            "Tipo de servicio": "tipo_de_servicio",
-            "Costes tot.reales": "costes_totreales", # CORRECCIÓN: coincide con el nombre de la columna normalizado
-            "Descripción": "descripcion",
-            "Fecha de aviso": "fecha_de_aviso",
-            "Texto de Posición": "texto_de_posicion",
-            "Texto_equipo": "texto_equipo",
-            "Duración de parada": "duracion_de_parada",
-            "Equipo": "equipo",
-            "Aviso": "aviso",
-            "Status del sistema": "status_del_sistema",
-            "Orden": "orden",
-            "Ubicación técnica": "ubicacion_tecnica",
-            "Indicador": "indicador",
-            "Centro de coste": "centro_de_coste",
-            "Inic.garantía prov.": "inic_garantia_prov",
-            "Fin garantía prov.": "fin_garantia_prov",
-            "Indicador ABC": "indicador_abc",
-            "Texto grupo acción": "texto_grupo_accion",
-        }
+        # DEBUG: Mostrar columnas del DataFrame al inicio de process_data
+        st.info(f"Columnas del DataFrame al inicio de process_data: {df.columns.tolist()}")
 
-        # Aplicar el mapeo de columnas de manera robusta
-        final_renames = {}
-        for original_key, target_col_name in user_column_mapping.items():
-            # Convertir el nombre original a la forma normalizada para buscar en el DataFrame
-            # NOTA: Los nombres de las columnas en 'df' ya están normalizados desde load_and_merge_data
-            # Así que buscamos 'target_col_name' en 'df.columns' y luego lo mapeamos si es diferente
-            if normalize_string(original_key) in df.columns and normalize_string(original_key) != target_col_name:
-                final_renames[normalize_string(original_key)] = target_col_name
-            elif normalize_string(original_key) not in df.columns:
-                 # Si la columna original no está, y la de destino tampoco, la creamos
-                if target_col_name not in df.columns:
-                    df[target_col_name] = np.nan
-                    st.warning(f"La columna '{original_key}' no se encontró en los datos. Se creó '{target_col_name}' con valores nulos.")
-
-
-        df = df.rename(columns=final_renames, errors='ignore')
+        # Asegurarse de que las columnas críticas existan (añadir con NaN si no están)
+        essential_columns = [
+            "denominacion_ejecutante", "codigo_postal", "denominacion_de_objeto_tecnico",
+            "texto_codigo_accion", "texto_de_accion", "tipo_de_servicio", "costes_totreales",
+            "descripcion", "fecha_de_aviso", "duracion_de_parada", "equipo", "aviso",
+            "status_del_sistema", "orden", "ubicacion_tecnica", "indicador",
+            "centro_de_coste", "inic_garantia_prov", "fin_garantia_prov", "indicador_abc",
+            "texto_grupo_accion", "texto_equipo" # Asegúrate que texto_equipo esté aquí si se espera
+        ]
+        for col in essential_columns:
+            if col not in df.columns:
+                df[col] = np.nan
+                st.warning(f"La columna '{col}' no se encontró en los datos procesados inicialmente. Se añadió con valores nulos.")
 
         # Filtrar 'PTBO' del Status del sistema
         if 'status_del_sistema' in df.columns:
@@ -193,35 +182,12 @@ with st.container():
 
         # --- Asignar nombres más simples para uso posterior ---
         # Asegurarse de que estas columnas existan antes de asignarlas
-        if 'denominacion_ejecutante' in df.columns:
-            df['PROVEEDOR'] = df['denominacion_ejecutante']
-        else:
-            df['PROVEEDOR'] = np.nan
-
-        if 'costes_totreales' in df.columns:
-            df['COSTO'] = pd.to_numeric(df['costes_totreales'], errors='coerce')
-        else:
-            df['COSTO'] = np.nan
-
-        if 'duracion_de_parada' in df.columns:
-            df['TIEMPO PARADA'] = pd.to_numeric(df['duracion_de_parada'], errors='coerce')
-        else:
-            df['TIEMPO PARADA'] = np.nan
-
-        if 'equipo' in df.columns:
-            df['EQUIPO_NUM'] = pd.to_numeric(df['equipo'], errors='coerce')
-        else:
-            df['EQUIPO_NUM'] = np.nan
-
-        if 'aviso' in df.columns:
-            df['AVISO_NUM'] = pd.to_numeric(df['aviso'], errors='coerce')
-        else:
-            df['AVISO_NUM'] = np.nan
-
-        if 'tipo_de_servicio' in df.columns:
-            df['TIPO DE SERVICIO'] = df['tipo_de_servicio']
-        else:
-            df['TIPO DE SERVICIO'] = np.nan
+        df['PROVEEDOR'] = df['denominacion_ejecutante'] if 'denominacion_ejecutante' in df.columns else np.nan
+        df['COSTO'] = pd.to_numeric(df['costes_totreales'], errors='coerce') if 'costes_totreales' in df.columns else np.nan
+        df['TIEMPO PARADA'] = pd.to_numeric(df['duracion_de_parada'], errors='coerce') if 'duracion_de_parada' in df.columns else np.nan
+        df['EQUIPO_NUM'] = pd.to_numeric(df['equipo'], errors='coerce') if 'equipo' in df.columns else np.nan
+        df['AVISO_NUM'] = pd.to_numeric(df['aviso'], errors='coerce') if 'aviso' in df.columns else np.nan
+        df['TIPO DE SERVICIO'] = df['tipo_de_servicio'] if 'tipo_de_servicio' in df.columns else np.nan
 
         # --- Agregar 'HORA/ DIA' y 'DIAS/ AÑO' basadas en 'texto_equipo' ---
         horarios_dict = {
@@ -310,6 +276,11 @@ with st.container():
             df['description_category'] = df['descripcion'].apply(categorize_description)
         else:
             df['description_category'] = "Sin Categoría"
+
+        # DEBUG: Mostrar el conteo de nulos para las columnas críticas antes de retornar
+        st.info(f"Conteo de nulos en 'denominacion_de_objeto_tecnico' antes de retornar de process_data: {df['denominacion_de_objeto_tecnico'].isnull().sum()}")
+        st.info(f"Conteo de nulos en 'costes_totreales' antes de retornar de process_data: {df['costes_totreales'].isnull().sum()}")
+        st.info(f"Conteo de nulos en 'COSTO' antes de retornar de process_data: {df['COSTO'].isnull().sum()}")
 
         return df
 
