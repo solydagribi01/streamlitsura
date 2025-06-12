@@ -358,7 +358,7 @@ with st.container():
 
         return df
 
-    uploaded_file = st.file_uploader("📂 Sube el archivo Excel", type=["xlsx"], key="file_uploader_initial")
+    uploaded_file = st.file_uploader("� Sube el archivo Excel", type=["xlsx"], key="file_uploader_initial")
 
     if uploaded_file:
         try:
@@ -602,150 +602,7 @@ if df is not None:
             ("Postventa", "¿Conoce necesidades y ofrece alternativas adecuadas?","2,1,0,-1"),
             ("Postventa", "¿Realiza seguimiento a los resultados de los trabajos?", "2,1,0,-1"),
             ("Postventa", "¿Ofrece capacitaciones para el manejo de los equipos?", "2,1,0,-1"),
-            ("Postventa", "¿Los métodos de capacitación ofrecidos son efectivos y adecuados?", "2,1,0,-1"),
-            ("Desempeño técnico", "Disponibilidad promedio (%)", "auto"),
-            ("Desempeño técnico", "MTTR promedio (hrs)", "auto"),
-            ("Desempeño técnico", "MTBF promedio (hrs)", "auto"),
-            ("Desempeño técnico", "Rendimiento promedio equipos", "auto"),
-        ]
-
-        # Rangos detallados para mostrar
-        rangos_detallados = {
-            "Calidad": {
-                "¿Las soluciones propuestas son coherentes con el diagnóstico y causa raíz del problema?": {
-                    2: "Total coherencia con el diagnóstico y causas identificadas",
-                    1: "Coherencia razonable, con pequeños ajustes necesarios",
-                    0: "Cumple con lo básico, pero con limitaciones relevantes",
-                    -1: "No guarda coherencia o es deficiente respecto al diagnóstico"
-                },
-                "¿El trabajo entregado tiene materiales nuevos, originales y de marcas reconocidas?": {
-                    2: "Todos los materiales son nuevos, originales y de marcas reconocidas",
-                    1: "La mayoría de los materiales cumplen esas condiciones",
-                    0: "Algunos materiales no son nuevos o no están certificados",
-                    -1: "Materiales genéricos, usados o sin respaldo de marca"
-                },
-                "¿Cuenta con acabados homogéneos, limpios y pulidos?": {
-                    2: "Acabados uniformes, bien presentados y profesionales",
-                    1: "En general, los acabados son aceptables y limpios",
-                    0: "Presenta inconsistencias notorias en algunos acabados",
-                    -1: "Acabados descuidados, sucios o sin terminación adecuada"
-                },
-                "¿El trabajo entregado corresponde completamente con lo contratado?": {
-                    2: "Cumple en su totalidad con lo contratado y acordado",
-                    1: "Cumple en gran parte con lo contratado, con mínimos desvíos",
-                    0: "Cumple con los requisitos mínimos establecidos",
-                    -1: "No corresponde con lo contratado o presenta deficiencias importantes"
-                },
-                "¿La facturación refleja correctamente lo ejecutado y acordado?": {
-                    2: "Facturación precisa, sin errores y con toda la información requerida",
-                    1: "Facturación con pequeños errores que no afectan el control",
-                    0: "Facturación con errores importantes (por ejemplo, precios)",
-                    -1: "Facturación incorrecta, incompleta o que requiere ser repetida"
-                }
-            },
-            "Oportunidad": {
-                "¿La entrega de cotizaciones fue oportuna, según el contrato?": {
-                    2: "Siempre entrega cotizaciones en los tiempos establecidos",
-                    1: "Generalmente cumple con los plazos establecidos",
-                    0: "A veces entrega fuera del tiempo estipulado",
-                    -1: "Frecuentemente incumple los tiempos o no entrega"
-                },
-                "¿El reporte del servicio fue entregado oportunamente, según el contrato?": {
-                    2: "Siempre entrega los reportes a tiempo, según lo acordado",
-                    1: "Entrega los reportes con mínimos retrasos",
-                    0: "Entrega con demoras ocasionales",
-                    -1: "Entrega tardía constante o no entrega"
-                },
-                "¿Cumple las fechas y horas programadas para los trabajos, según el contrato?": {
-                    2: "Puntualidad absoluta en fechas y horarios de ejecución",
-                    1: "Puntualidad general con excepciones menores",
-                    0: "Cumplimiento parcial o con retrasos frecuentes",
-                    -1: "Incumplimiento reiterado de horarios o fechas"
-                },
-                "¿Responde de forma efectiva ante eventualidades emergentes, según el contrato?": {
-                    2: "Respuesta inmediata y eficaz ante cualquier eventualidad",
-                    1: "Respuesta adecuada en la mayoría de los casos",
-                    0: "Respuesta tardía o poco efectiva en varias situaciones",
-                    -1: "No responde adecuadamente o ignora emergencias"
-                },
-                "¿Soluciona rápidamente reclamos o inquietudes por garantía, según el contrato?": {
-                    2: "Soluciona siempre con rapidez y eficacia",
-                    1: "Responde satisfactoriamente en la mayoría de los casos",
-                    0: "Respuesta variable, con demoras ocasionales",
-                    -1: "Soluciones lentas o sin resolver adecuadamente"
-                },
-                "¿Dispone de los repuestos requeridos en los tiempos necesarios, según el contrato?": {
-                    2: "Siempre cuenta con repuestos disponibles en el tiempo requerido",
-                    1: "Generalmente cumple con la disponibilidad de repuestos",
-                    0: "Disponibilidad intermitente o con retrasos",
-                    -1: "No garantiza disponibilidad o presenta retrasos constantes"
-                },
-                "¿Entrega las facturas en los tiempos convenidos, según el contrato?": {
-                    2: "Entrega siempre puntual de facturas",
-                    1: "Entrega generalmente puntual con pocas excepciones",
-                    0: "Entrega ocasionalmente fuera del tiempo acordado",
-                    -1: "Entrega tarde con frecuencia o no entrega"
-                }
-            },
-            "Precio": {
-                "¿Los precios ofrecidos para equipos son competitivos respecto al mercado?": {
-                    2: "Muy por debajo del precio promedio de mercado",
-                    1: "Por debajo del promedio de mercado",
-                    0: "Igual al promedio de mercado",
-                    -1: "Por encima del promedio de mercado"
-                },
-                "¿Los precios ofrecidos para repuestos son competitivos respecto al mercado?": {
-                    2: "Muy por debajo del precio promedio de mercado",
-                    1: "Por debajo del promedio de mercado",
-                    0: "Igual al promedio de mercado",
-                    -1: "Por encima del promedio de mercado"
-                },
-                "Facilita llegar a una negociación (precios)": {
-                    2: "Siempre está dispuesto a negociar de manera flexible",
-                    1: "En general muestra disposición al diálogo",
-                    0: "Ocasionalmente permite negociar",
-                    -1: "Poco o nada dispuesto a negociar"
-                },
-                "Pone en consideración contratos y trabajos adjudicados en el último periodo de tiempo": {
-                    2: "Siempre toma en cuenta la relación comercial previa",
-                    1: "Generalmente considera trabajos anteriores",
-                    0: "Solo ocasionalmente lo toma en cuenta",
-                    -1: "No muestra continuidad ni reconocimiento de antecedentes"
-                },
-                "¿Los precios ofrecidos para mantenimientos son competitivos respecto al mercado?": {
-                    2: "Muy por debajo del precio promedio de mercado",
-                    1: "Por debajo del promedio de mercado",
-                    0: "Igual al promedio de mercado",
-                    -1: "Por encima del promedio de mercado"
-                },
-                "¿Los precios ofrecidos para insumos son competitivos respecto al mercado?": {
-                    2: "Muy por debajo del precio promedio de mercado",
-                    1: "Por debajo del promedio de mercado",
-                    0: "Igual al promedio de mercado",
-                    -1: "Por encima del promedio de mercado"
-                }
-            },
-            "Postventa": {
-                "¿Tiene disposición y actitud de servicio frente a solicitudes?": {
-                    2: "Atención proactiva y excelente actitud de servicio",
-                    1: "Buena actitud y disposición general",
-                    0: "Actitud pasiva o limitada ante las solicitudes",
-                    -1: "Falta de disposición o actitudes negativas"
-                },
-                "¿Conoce necesidades y ofrece alternativas adecuadas?": {
-                    2: "Conocimiento profundo del cliente y propuestas adecuadas",
-                    1: "Buen conocimiento y alternativas en general adecuadas",
-                    0: "Soluciones parcialmente adecuadas",
-                    -1: "No se adapta a las necesidades o propone soluciones inadecuadas"
-                },
-                "¿Realiza seguimiento a los resultados de los trabajos?": {
-                    2: "Hace seguimiento sistemático y detallado",
-                    1: "Realiza seguimiento general adecuado",
-                    0: "Seguimiento ocasional o no documentado",
-                    -1: "No realiza seguimiento posterior"
-                },
-                "¿Ofrece capacitaciones para el manejo de los equipos?", "2,1,0,-1"),
-            ("Postventa", "¿Los métodos de capacitación ofrecidos son efectivos y adecuados?", "2,1,0,-1")
+            ("Postventa", "¿Los métodos de capacitación ofrecidos son efectivos y adecuados?", "2,1,0,-1"), # Añadida la coma aquí
             ("Desempeño técnico", "Disponibilidad promedio (%)", "auto"),
             ("Desempeño técnico", "MTTR promedio (hrs)", "auto"),
             ("Desempeño técnico", "MTBF promedio (hrs)", "auto"),
@@ -1229,3 +1086,4 @@ if df is not None:
                     )
         else:
             st.info("Selecciona un proveedor para ver sus métricas de desempeño y realizar la evaluación.")
+�
