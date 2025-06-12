@@ -358,7 +358,7 @@ with st.container():
 
         return df
 
-    uploaded_file = st.file_uploader("� Sube el archivo Excel", type=["xlsx"], key="file_uploader_initial")
+    uploaded_file = st.file_uploader("📂 Sube el archivo Excel", type=["xlsx"], key="file_uploader_initial")
 
     if uploaded_file:
         try:
@@ -602,7 +602,7 @@ if df is not None:
             ("Postventa", "¿Conoce necesidades y ofrece alternativas adecuadas?","2,1,0,-1"),
             ("Postventa", "¿Realiza seguimiento a los resultados de los trabajos?", "2,1,0,-1"),
             ("Postventa", "¿Ofrece capacitaciones para el manejo de los equipos?", "2,1,0,-1"),
-            ("Postventa", "¿Los métodos de capacitación ofrecidos son efectivos y adecuados?", "2,1,0,-1"), # Añadida la coma aquí
+            ("Postventa", "¿Los métodos de capacitación ofrecidos son efectivos y adecuados?", "2,1,0,-1"), 
             ("Desempeño técnico", "Disponibilidad promedio (%)", "auto"),
             ("Desempeño técnico", "MTTR promedio (hrs)", "auto"),
             ("Desempeño técnico", "MTBF promedio (hrs)", "auto"),
@@ -1086,4 +1086,3 @@ if df is not None:
                     )
         else:
             st.info("Selecciona un proveedor para ver sus métricas de desempeño y realizar la evaluación.")
-�
