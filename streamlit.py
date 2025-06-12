@@ -31,50 +31,51 @@ if file:
         iw65 = pd.read_excel(xls, sheet_name=3)
         zpm015 = pd.read_excel(xls, sheet_name=4)
 
-        # Limpiar espacios en blanco de los nombres de las columnas
+        # Limpiar espacios en blanco de los nombres de las columnas en todos los DataFrames
         for df_sheet in (iw29, iw39, ih08, iw65, zpm015):
             df_sheet.columns = df_sheet.columns.str.strip()
 
-        # Guardar la columna 'Equipo' de iw29 antes de las fusiones que podrían modificarla
-        equipo_original = iw29[["Aviso", "Equipo", "Duración de parada", "Descripción"]].copy()
-        
-        # Preparar subconjunto de iw39 para la fusión
-        iw39_subset = iw39[["Aviso", "Total general (real)"]]
+        # Iniciar el DataFrame principal con los datos de iw29
+        df_merged = iw29.copy()
 
-        # Fusionar DataFrames paso a paso
-        # Paso 1: Fusionar iw29 con el subconjunto de iw39
-        tmp1 = pd.merge(iw29, iw39_subset, on="Aviso", how="left")
-        
-        # Paso 2: Fusionar tmp1 con iw65
-        tmp2 = pd.merge(tmp1, iw65, on="Aviso", how="left")
-        
-        # Eliminar la columna 'Equipo' duplicada si existe antes de fusionar 'equipo_original'
-        tmp2.drop(columns=["Equipo"], errors='ignore', inplace=True)
-        
-        # Paso 3: Fusionar tmp2 con equipo_original para restaurar la columna 'Equipo' y 'Duración de parada'
-        tmp2 = pd.merge(tmp2, equipo_original, on="Aviso", how="left", suffixes=('_x', '')) # Using suffixes to manage potential duplicates
+        # Preparar y fusionar datos de iw39 (Costes tot.reales)
+        # Renombrar la columna antes de la fusión para evitar conflictos
+        iw39_subset = iw39[["Aviso", "Total general (real)"]].rename(columns={"Total general (real)": "Costes tot.reales"})
+        df_merged = pd.merge(df_merged, iw39_subset, on="Aviso", how="left")
 
-        # Paso 4: Fusionar tmp2 con ih08
-        tmp3 = pd.merge(tmp2, ih08[[
+        # Fusionar datos de iw65 (columnas de acción)
+        # Usar sufijos para manejar posibles columnas duplicadas, manteniendo las de df_merged por defecto
+        df_merged = pd.merge(df_merged, iw65, on="Aviso", how="left", suffixes=('', '_iw65'))
+        
+        # Si 'Equipo' fue duplicado por iw65, preferimos la columna original de iw29 (sin sufijo)
+        if 'Equipo_iw65' in df_merged.columns:
+            df_merged.drop(columns=['Equipo_iw65'], inplace=True)
+
+        # Preparar y fusionar datos de ih08 (detalles del equipo)
+        ih08_cols_to_merge = ih08[[
             "Equipo", "Inic.garantía prov.", "Fin garantía prov.", "Texto", "Indicador ABC", "Denominación de objeto técnico"
-        ]], on="Equipo", how="left")
+        ]].rename(columns={"Texto": "Texto_equipo"})
+        
+        # Fusionar ih08. Si hay columnas con el mismo nombre que ya existen en df_merged
+        # (ej. 'Denominación de objeto técnico' si viniera de iw29), la de ih08 recibirá sufijo '_ih08'.
+        df_merged = pd.merge(df_merged, ih08_cols_to_merge, on="Equipo", how="left", suffixes=('', '_ih08'))
+        
+        # Si 'Denominación de objeto técnico' fue duplicada por ih08,
+        # preferimos explícitamente la versión de ih08 y eliminamos la duplicada.
+        if 'Denominación de objeto técnico_ih08' in df_merged.columns:
+            df_merged['Denominación de objeto técnico'] = df_merged['Denominación de objeto técnico_ih08']
+            df_merged.drop(columns=['Denominación de objeto técnico_ih08'], inplace=True)
 
-        # Paso 5: Fusionar tmp3 con zpm015
-        tmp4 = pd.merge(tmp3, zpm015[["Equipo", "TIPO DE SERVICIO"]], on="Equipo", how="left")
+        # Fusionar datos de zpm015 (Tipo de servicio)
+        df_merged = pd.merge(df_merged, zpm015[["Equipo", "TIPO DE SERVICIO"]], on="Equipo", how="left")
 
-        # Renombrar columnas para mayor claridad y consistencia
-        tmp4.rename(columns={
-            "Texto": "Texto_equipo",
-            "Total general (real)": "Costes tot.reales",
-            # Asegúrate de que 'Duración de parada' no se haya renombrado si hubo conflicto de sufijos
-            "Duración de parada_x": "Duración de parada" # En caso de que se haya creado un sufijo por la fusión con equipo_original
-        }, inplace=True)
+        # Convertir las columnas a tipo numérico DESPUÉS de todas las fusiones
+        # Esto asegura que las columnas existan y sean Series antes de la conversión.
+        df_merged["Duración de parada"] = pd.to_numeric(df_merged["Duración de parada"], errors='coerce')
+        df_merged["Costes tot.reales"] = pd.to_numeric(df_merged["Costes tot.reales"], errors='coerce')
 
-        # Convertir columnas a tipo numérico para cálculos
-        tmp4["Duración de parada"] = pd.to_numeric(tmp4["Duración de parada"], errors='coerce')
-        tmp4["Costes tot.reales"] = pd.to_numeric(tmp4["Costes tot.reales"], errors='coerce')
-
-        # Definir el orden final y las columnas deseadas
+        # Definir el orden final y las columnas deseadas.
+        # Es importante que estos nombres coincidan con los nombres finales de las columnas después de las fusiones y renombramientos.
         columnas_finales = [
             "Aviso",
             "Orden",
@@ -100,9 +101,9 @@ if file:
             "TIPO DE SERVICIO"
         ]
 
-        # Seleccionar solo las columnas que realmente existen en el DataFrame fusionado
-        columnas_finales_existentes = [col for col in columnas_finales if col in tmp4.columns]
-        return tmp4[columnas_finales_existentes]
+        # Filtrar solo las columnas que realmente existen en el DataFrame fusionado final
+        final_columns_exist = [col for col in columnas_finales if col in df_merged.columns]
+        return df_merged[final_columns_exist]
 
     # Cargar y fusionar los datos
     df = load_and_merge_data(file)
@@ -139,6 +140,7 @@ if file:
         if "Duración de parada" in df_input.columns and "Equipo" in df_input.columns:
             equipos_unicos = df_input["Equipo"].nunique()
             if equipos_unicos > 0:
+                # Filtrar NaNs en 'Duración de parada' antes de sumar para MTBF
                 return df_input["Duración de parada"].sum() / equipos_unicos
         return np.nan
 
