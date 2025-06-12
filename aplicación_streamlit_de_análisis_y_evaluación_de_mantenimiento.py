@@ -5,6 +5,7 @@ import os
 import io
 import matplotlib.pyplot as plt
 import seaborn as sns
+import re
 
 # Suprimir advertencias de Matplotlib para una salida más limpia en Streamlit
 # La opción 'deprecation.showPyplotGlobalUse' ha sido eliminada en versiones recientes de Streamlit,
@@ -18,6 +19,22 @@ st.title("🔧 Herramienta Integral de Mantenimiento")
 # --- Almacenamiento Global de Datos (para el estado de la sesión) ---
 if 'df_processed' not in st.session_state:
     st.session_state.df_processed = None
+
+# --- Helper para normalizar cadenas (usado para nombres de columnas) ---
+def normalize_string(s):
+    """Normaliza una cadena a minúsculas, con guiones bajos y sin caracteres especiales."""
+    if pd.isna(s):
+        return None
+    s = str(s).strip().lower()
+    # Reemplaza espacios y caracteres especiales con guiones bajos
+    s = re.sub(r'[\s\.\(\)/%-]+', '_', s)
+    # Elimina cualquier carácter no alfanumérico restante (excepto guiones bajos)
+    s = re.sub(r'[^\w]+', '', s)
+    # Maneja caracteres especiales del español
+    s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u').replace('ñ', 'n')
+    # Elimina guiones bajos iniciales/finales que puedan resultar de los reemplazos
+    s = s.strip('_')
+    return s
 
 # --- Sección de Carga y Procesamiento de Datos ---
 with st.container():
@@ -37,49 +54,69 @@ with st.container():
         iw65 = pd.read_excel(xls, sheet_name=3)
         zpm015 = pd.read_excel(xls, sheet_name=4)
 
-        # Limpiar encabezados (eliminar espacios en blanco)
+        # Limpiar y normalizar encabezados de todas las hojas inmediatamente
         for df_temp in (iw29, iw39, ih08, iw65, zpm015):
-            df_temp.columns = df_temp.columns.str.strip()
+            df_temp.columns = [normalize_string(col) for col in df_temp.columns]
 
-        # Asegurar que 'Aviso' y 'Equipo' son tratados como texto si contienen valores mixtos
-        iw29['Aviso'] = iw29['Aviso'].astype(str)
-        iw29['Equipo'] = iw29['Equipo'].astype(str)
-        iw39['Aviso'] = iw39['Aviso'].astype(str)
-        iw65['Aviso'] = iw65['Aviso'].astype(str)
-        ih08['Equipo'] = ih08['Equipo'].astype(str)
-        zpm015['Equipo'] = zpm015['Equipo'].astype(str)
+        # Asegurar que 'aviso' y 'equipo' son tratados como texto si contienen valores mixtos
+        if 'aviso' in iw29.columns: iw29['aviso'] = iw29['aviso'].astype(str)
+        if 'equipo' in iw29.columns: iw29['equipo'] = iw29['equipo'].astype(str)
+        if 'aviso' in iw39.columns: iw39['aviso'] = iw39['aviso'].astype(str)
+        if 'aviso' in iw65.columns: iw65['aviso'] = iw65['aviso'].astype(str)
+        if 'equipo' in ih08.columns: ih08['equipo'] = ih08['equipo'].astype(str)
+        if 'equipo' in zpm015.columns: zpm015['equipo'] = zpm015['equipo'].astype(str)
 
+        # Usar nombres de columnas normalizados para la selección y fusión
+        # Asegúrate de que las columnas existan antes de seleccionarlas para evitar KeyError
+        # Define una función helper para obtener columnas de forma segura
+        def get_cols_if_exist(df, cols_list):
+            return [col for col in cols_list if col in df.columns]
 
-        equipo_original = iw29[["Aviso", "Equipo", "Duración de parada", "Descripción"]].copy()
-        iw39_subset = iw39[["Aviso", "Total general (real)"]]
+        equipo_original_cols = get_cols_if_exist(iw29, ["aviso", "equipo", "duracion_de_parada", "descripcion"])
+        equipo_original = iw29[equipo_original_cols].copy()
 
-        tmp1 = pd.merge(iw29, iw39_subset, on="Aviso", how="left")
-        tmp2 = pd.merge(tmp1, iw65, on="Aviso", how="left")
-        tmp2.drop(columns=["Equipo"], errors='ignore', inplace=True) # Eliminar la columna 'Equipo' si existe en tmp2 para evitar conflicto en el siguiente merge
-        tmp2 = pd.merge(tmp2, equipo_original, on="Aviso", how="left") # Volver a unir la información original del equipo
+        iw39_subset_cols = get_cols_if_exist(iw39, ["aviso", "total_general_real"])
+        iw39_subset = iw39[iw39_subset_cols]
 
-        tmp3 = pd.merge(tmp2, ih08[[
-            "Equipo", "Inic.garantía prov.", "Fin garantía prov.", "Texto", "Indicador ABC", "Denominación de objeto técnico"
-        ]], on="Equipo", how="left")
+        tmp1 = pd.merge(iw29, iw39_subset, on="aviso", how="left")
+        tmp2 = pd.merge(tmp1, iw65, on="aviso", how="left")
+        
+        # 'equipo' se eliminó en el merge anterior, si está duplicado
+        if 'equipo' in tmp2.columns:
+            tmp2.drop(columns=["equipo"], errors='ignore', inplace=True) 
+        tmp2 = pd.merge(tmp2, equipo_original, on="aviso", how="left")
 
-        tmp4 = pd.merge(tmp3, zpm015[["Equipo", "TIPO DE SERVICIO"]], on="Equipo", how="left")
+        ih08_cols_to_merge = get_cols_if_exist(ih08, [
+            "equipo", "inic_garantia_prov", "fin_garantia_prov", "texto",
+            "indicador_abc", "denominacion_de_objeto_tecnico"
+        ])
+        tmp3 = pd.merge(tmp2, ih08[ih08_cols_to_merge], on="equipo", how="left")
 
-        tmp4.rename(columns={
-            "Texto": "Texto_equipo",
-            "Total general (real)": "Costes tot.reales"
-        }, inplace=True)
+        zpm015_cols_to_merge = get_cols_if_exist(zpm015, ["equipo", "tipo_de_servicio"])
+        tmp4 = pd.merge(tmp3, zpm015[zpm015_cols_to_merge], on="equipo", how="left")
 
-        columnas_finales = [
-            "Aviso", "Orden", "Fecha de aviso", "Código postal", "Status del sistema",
-            "Descripción", "Ubicación técnica", "Indicador", "Equipo",
-            "Denominación de objeto técnico", "Denominación ejecutante", "Duración de parada",
-            "Centro de coste", "Costes tot.reales", "Inic.garantía prov.", "Fin garantía prov.",
-            "Texto_equipo", "Indicador ABC", "Texto código acción", "Texto de acción",
-            "Texto grupo acción", "TIPO DE SERVICIO"
+        # Renombrar columnas específicas a nombres más consistentes para el merge
+        # Estos son los nombres normalizados de las hojas de Excel
+        rename_in_load = {}
+        if 'texto' in tmp4.columns:
+            rename_in_load['texto'] = "texto_equipo" # Renombra 'texto' (normalizado) a 'texto_equipo'
+        if 'total_general_real' in tmp4.columns:
+            rename_in_load['total_general_real'] = "costes_tot_reales" # Renombra 'total_general_real' (normalizado) a 'costes_tot_reales'
+
+        tmp4.rename(columns=rename_in_load, inplace=True)
+        
+        # Las columnas finales esperadas después de todas las fusiones y renombramientos iniciales
+        columnas_finales_expected = [
+            "aviso", "orden", "fecha_de_aviso", "codigo_postal", "status_del_sistema",
+            "descripcion", "ubicacion_tecnica", "indicador", "equipo",
+            "denominacion_de_objeto_tecnico", "denominacion_ejecutante", "duracion_de_parada",
+            "centro_de_coste", "costes_tot_reales", "inic_garantia_prov", "fin_garantia_prov",
+            "texto_equipo", "indicador_abc", "texto_codigo_accion", "texto_de_accion",
+            "texto_grupo_accion", "tipo_de_servicio"
         ]
-
+        
         # Filtrar columnas que existen en tmp4
-        columnas_finales = [col for col in columnas_finales if col in tmp4.columns]
+        columnas_finales = [col for col in columnas_finales_expected if col in tmp4.columns]
         return tmp4[columnas_finales]
 
     @st.cache_data
@@ -87,8 +124,10 @@ with st.container():
         """
         Realiza filtrado, ajuste de costos y normalización de columnas en el DataFrame.
         """
-        # --- Normalizar nombres de columnas ANTES de cualquier filtrado/operación ---
-        column_mapping = {
+        # Define el mapeo de columnas proporcionado por el usuario
+        # Las claves deben coincidir con los nombres de las columnas que salen de load_and_merge_data
+        # (es decir, ya están con espacios eliminados y con los renombramientos iniciales como 'Costes tot.reales')
+        user_column_mapping = {
             "Denominación ejecutante": "denominacion_ejecutante",
             "Código postal": "codigo_postal",
             "Denominación de objeto técnico": "denominacion_de_objeto_tecnico",
@@ -103,7 +142,8 @@ with st.container():
             "Duración de parada": "duracion_de_parada",
             "Equipo": "equipo",
             "Aviso": "aviso",
-            "Status del sistema": "status_del_sistema", # Asegúrate de que este mapeo exista
+            "Status del sistema": "status_del_sistema",
+            "Orden": "orden",
             "Ubicación técnica": "ubicacion_tecnica",
             "Indicador": "indicador",
             "Centro de coste": "centro_de_coste",
@@ -111,41 +151,37 @@ with st.container():
             "Fin garantía prov.": "fin_garantia_prov",
             "Indicador ABC": "indicador_abc",
             "Texto grupo acción": "texto_grupo_accion",
-            "Orden": "orden",
         }
 
-        normalized_df_columns = []
-        for col in df.columns:
-            found_match = False
-            for original, normalized in column_mapping.items():
-                if col.strip().lower() == original.strip().lower():
-                    normalized_df_columns.append(normalized)
-                    found_match = True
-                    break
-            if not found_match:
-                # Fallback para columnas no mapeadas explícitamente
-                normalized_df_columns.append(
-                    col.lower().strip().replace(" ", "_").replace(".", "")
-                    .replace("á", "a").replace("é", "e").replace("í", "i")
-                    .replace("ó", "o").replace("ú", "u").replace("ñ", "n")
-                )
-        df.columns = normalized_df_columns
-        
-        # Ahora que las columnas están normalizadas, podemos filtrar
+        # Aplicar el mapeo de columnas de manera robusta
+        final_renames = {}
+        for original_key, target_col_name in user_column_mapping.items():
+            # Convertir el nombre original a la forma normalizada para buscar en el DataFrame
+            normalized_original_key = normalize_string(original_key)
+            if normalized_original_key in df.columns:
+                final_renames[normalized_original_key] = target_col_name
+            else:
+                st.warning(f"La columna esperada '{original_key}' (normalizada como '{normalized_original_key}') no se encontró en el DataFrame de entrada. Se creará '{target_col_name}' con valores nulos si es necesario.")
+                # Asegurarse de que la columna destino exista, incluso si la original no
+                if target_col_name not in df.columns:
+                    df[target_col_name] = np.nan
+
+        df = df.rename(columns=final_renames, errors='ignore')
+
         # Filtrar 'PTBO' del Status del sistema
         if 'status_del_sistema' in df.columns:
             df = df[~df["status_del_sistema"].astype(str).str.contains("PTBO", case=False, na=False)].copy()
         else:
-            st.warning("La columna 'Status del sistema' (status_del_sistema) no se encontró en el archivo, el filtrado 'PTBO' no se aplicará.")
-
+            st.warning("La columna 'status_del_sistema' no se encontró para el filtrado 'PTBO'.")
 
         # Ajustar costos duplicados por Aviso
         if 'aviso' in df.columns and 'costes_totreales' in df.columns:
+            df['costes_totreales'] = pd.to_numeric(df['costes_totreales'], errors='coerce') # Asegurar que es numérico
             df['costes_totreales'] = df.groupby('aviso')['costes_totreales'].transform(
                 lambda x: [x.iloc[0]] + [0]*(len(x)-1) if not x.empty else x
             )
         else:
-            st.warning("Columnas 'Aviso' o 'Costes tot.reales' no encontradas para el ajuste de costos duplicados.")
+            st.warning("Columnas 'aviso' o 'costes_totreales' no encontradas para el ajuste de costos duplicados.")
 
         # --- Asignar nombres más simples para uso posterior ---
         # Asegurarse de que estas columnas existan antes de asignarlas
@@ -239,17 +275,16 @@ with st.container():
             df['HORA/ DIA'] = np.nan
             df['DIAS/ AÑO'] = np.nan
 
-        # Extraer año y mes para la aplicación CostosAvisosStreamlitApp
-        # CORRECCIÓN: Asegurar que 'mes' y 'año' se calculen correctamente, no se sobrescriban con np.nan
+        # Extraer año y mes
         if 'fecha_de_aviso' in df.columns:
             df['fecha_de_aviso'] = pd.to_datetime(df['fecha_de_aviso'], errors='coerce')
             df['año'] = df['fecha_de_aviso'].dt.year
-            df['mes'] = df['fecha_de_aviso'].dt.strftime('%B')  # Nombre del mes
+            df['mes'] = df['fecha_de_aviso'].dt.strftime('%B')
         else:
             df['año'] = np.nan
             df['mes'] = np.nan
 
-        # Categorizar 'descripcion' (ejemplo, ajustar según sea necesario)
+        # Categorizar 'descripcion'
         def categorize_description(description):
             if pd.isna(description):
                 return "Sin Categoría"
@@ -267,7 +302,6 @@ with st.container():
             df['description_category'] = df['descripcion'].apply(categorize_description)
         else:
             df['description_category'] = "Sin Categoría"
-
 
         return df
 
@@ -311,9 +345,9 @@ if df is not None:
                     pd.Series(dtype=float), pd.Series(dtype=float),
                     pd.Series(dtype=float), pd.Series(dtype=str))
 
-        cnt = df_sub_filtered['TIPO DE SERVICIO'].value_counts()
-        cost = df_sub_filtered.groupby('TIPO DE SERVICIO')['COSTO'].sum()
-        mttr = df_sub_filtered.groupby('TIPO DE SERVICIO')['TIEMPO PARADA'].mean()
+        cnt = df_sub_filtered['tipo_de_servicio'].value_counts() # Usar nombre normalizado
+        cost = df_sub_filtered.groupby('tipo_de_servicio')['COSTO'].sum()
+        mttr = df_sub_filtered.groupby('tipo_de_servicio')['TIEMPO PARADA'].mean()
 
         # Calcular el tiempo total de operación por tipo de servicio
         # Asegurarse de que 'DIAS/ AÑO' y 'HORA/ DIA' sean numéricos y manejar NaNs
@@ -321,12 +355,12 @@ if df is not None:
         df_sub_filtered_copy['DIAS/ AÑO'] = pd.to_numeric(df_sub_filtered_copy['DIAS/ AÑO'], errors='coerce')
         df_sub_filtered_copy['HORA/ DIA'] = pd.to_numeric(df_sub_filtered_copy['HORA/ DIA'], errors='coerce')
 
-        ttot = df_sub_filtered_copy.groupby('TIPO DE SERVICIO').apply(
+        ttot = df_sub_filtered_copy.groupby('tipo_de_servicio').apply(
             lambda g: (g['DIAS/ AÑO'].mean() * g['HORA/ DIA'].mean()) if not g['DIAS/ AÑO'].isnull().all() and not g['HORA/ DIA'].isnull().all() else np.nan
         ).astype(float) # Forzar a float para asegurar tipo numérico
 
-        down = df_sub_filtered_copy.groupby('TIPO DE SERVICIO')['TIEMPO PARADA'].sum().astype(float) # Forzar a float para asegurar tipo numérico
-        fails = df_sub_filtered_copy.groupby('TIPO DE SERVICIO')['AVISO_NUM'].count()
+        down = df_sub_filtered_copy.groupby('tipo_de_servicio')['TIEMPO PARADA'].sum().astype(float) # Forzar a float para asegurar tipo numérico
+        fails = df_sub_filtered_copy.groupby('tipo_de_servicio')['AVISO_NUM'].count() # Usar nombre normalizado
         
         # Evitar división por cero
         mtbf = (ttot - down) / fails.replace(0, np.nan)
@@ -397,13 +431,14 @@ if df is not None:
             st.session_state.analysis_page = 0
 
         # Obtener valores únicos para filtros
-        all_ejecutantes = sorted(df['denominacion_ejecutante'].dropna().unique())
-        all_cps = sorted(df['codigo_postal'].dropna().unique())
-        all_years = sorted(df['año'].dropna().astype(int).unique().tolist())
+        # Asegurarse de que las columnas existan antes de intentar usarlas
+        all_ejecutantes = sorted(df['denominacion_ejecutante'].dropna().unique()) if 'denominacion_ejecutante' in df.columns else []
+        all_cps = sorted(df['codigo_postal'].dropna().unique()) if 'codigo_postal' in df.columns else []
+        all_years = sorted(df['año'].dropna().astype(int).unique().tolist()) if 'año' in df.columns else []
         # Asegurar el orden correcto del mes
         month_order = ["January", "February", "March", "April", "May", "June",
                        "July", "August", "September", "October", "November", "December"]
-        all_months_raw = df['mes'].dropna().unique().tolist()
+        all_months_raw = df['mes'].dropna().unique().tolist() if 'mes' in df.columns else []
         all_months = sorted(all_months_raw, key=lambda x: month_order.index(x) if x in month_order else len(month_order))
 
 
@@ -422,23 +457,34 @@ if df is not None:
         selected_analysis_option = st.selectbox("Visualización", list(analysis_options.keys()), key="analysis_option_select")
 
         if selected_ejecutantes and selected_cps:
-            df_filtered_analysis = df[
-                (df['denominacion_ejecutante'].isin(selected_ejecutantes)) &
-                (df['codigo_postal'].isin(selected_cps))
-            ]
-
-            if selected_year != "Todos":
+            # Filtrar df por las selecciones, asegurando que las columnas existan
+            df_filtered_analysis = df.copy()
+            if 'denominacion_ejecutante' in df_filtered_analysis.columns:
+                df_filtered_analysis = df_filtered_analysis[df_filtered_analysis['denominacion_ejecutante'].isin(selected_ejecutantes)]
+            if 'codigo_postal' in df_filtered_analysis.columns:
+                df_filtered_analysis = df_filtered_analysis[df_filtered_analysis['codigo_postal'].isin(selected_cps)]
+            
+            if selected_year != "Todos" and 'año' in df_filtered_analysis.columns:
                 df_filtered_analysis = df_filtered_analysis[df_filtered_analysis['año'] == selected_year]
-            if selected_month != "Todos":
+            if selected_month != "Todos" and 'mes' in df_filtered_analysis.columns:
                 df_filtered_analysis = df_filtered_analysis[df_filtered_analysis['mes'] == selected_month]
 
             col_agrup, col_cost, tipo_calc = analysis_options[selected_analysis_option]
 
             def display_analysis_table(df_to_show, col_agrup_disp, col_cost_disp, type_calc_disp, page_num, items_per_page=20):
+                if col_agrup_disp not in df_to_show.columns:
+                    st.warning(f"La columna de agrupación '{col_agrup_disp}' no se encontró para el análisis. Asegúrate de que el archivo Excel contenga los datos necesarios.")
+                    return pd.DataFrame() # Devuelve un DataFrame vacío si la columna no existe
+
                 if type_calc_disp == "costos":
-                    grouped_df = df_to_show.groupby(col_agrup_disp)[col_cost_disp].sum().sort_values(ascending=False).reset_index()
-                    grouped_df.columns = [col_agrup_disp, "Costo total"]
-                else:
+                    # Verificar si la columna col_cost_disp existe antes de agrupar por ella
+                    if col_cost_disp in df_to_show.columns:
+                        grouped_df = df_to_show.groupby(col_agrup_disp)[col_cost_disp].sum().sort_values(ascending=False).reset_index()
+                        grouped_df.columns = [col_agrup_disp, "Costo total"]
+                    else:
+                        st.warning(f"La columna de costos '{col_cost_disp}' no se encontró para el análisis.")
+                        return pd.DataFrame()
+                else: # tipo_calc == "avisos"
                     grouped_df = df_to_show[col_agrup_disp].value_counts().reset_index()
                     grouped_df.columns = [col_agrup_disp, "Cantidad de avisos"]
 
@@ -455,13 +501,14 @@ if df is not None:
                         if st.button("← Página anterior", key="prev_analysis_page"):
                             st.session_state.analysis_page -= 1
                             # Streamlit se recargará automáticamente al cambiar el estado
-                with col_nav2: # CORRECCIÓN: Usar col_nav2 para el botón de siguiente página
+                with col_nav2:
                     if end < total_items:
                         if st.button("Página siguiente →", key="next_analysis_page"):
                             st.session_state.analysis_page += 1
                             # Streamlit se recargará automáticamente al cambiar el estado
                 with col_nav3:
                     st.markdown(f"Página {page_num + 1} de {num_pages}")
+                return grouped_df
 
             display_analysis_table(df_filtered_analysis, col_agrup, col_cost, tipo_calc, st.session_state.analysis_page)
         else:
@@ -710,7 +757,9 @@ if df is not None:
             mostrar_rangos_respuesta(preguntas, rangos_detallados)
 
         # --- Selección de Proveedor ---
-        providers = ["Todos"] + sorted(df["PROVEEDOR"].dropna().unique())
+        providers = ["Todos"]
+        if 'PROVEEDOR' in df.columns and not df['PROVEEDOR'].empty:
+            providers.extend(sorted(df["PROVEEDOR"].dropna().unique()))
         selected_provider = st.selectbox("Seleccione un proveedor para evaluar", providers, key="eval_provider_select")
 
         # --- Cargar datos y métricas específicas del proveedor ---
@@ -718,7 +767,11 @@ if df is not None:
             if prov == "Todos":
                 sub_df = data_df.copy()
             else:
-                sub_df = data_df[data_df['PROVEEDOR'] == prov].copy()
+                if 'PROVEEDOR' in data_df.columns:
+                    sub_df = data_df[data_df['PROVEEDOR'] == prov].copy()
+                else:
+                    st.warning("La columna 'PROVEEDOR' no se encontró en los datos para filtrar.")
+                    return None, {}, [], pd.DataFrame(), pd.DataFrame()
 
             if sub_df.empty:
                 st.warning(f"No hay datos disponibles para el proveedor '{prov}'.")
@@ -727,7 +780,7 @@ if df is not None:
             cnt_s, cost_s, mttr_s, mtbf_s, disp_s, rend_s = calcular_indicadores_servicio(sub_df)
             current_metrics = {'cnt': cnt_s, 'cost': cost_s, 'mttr': mttr_s, 'mtbf': mtbf_s, 'disp': disp_s, 'rend': rend_s}
 
-            all_service_types = sorted(sub_df['TIPO DE SERVICIO'].dropna().unique().tolist())
+            all_service_types = sorted(sub_df['tipo_de_servicio'].dropna().unique().tolist()) if 'tipo_de_servicio' in sub_df.columns else []
 
             resumen_servicio_df = pd.DataFrame({
                 'Cantidad de Avisos': cnt_s,
@@ -762,11 +815,19 @@ if df is not None:
 
             st.subheader(f"Evaluación para: {selected_provider}")
 
-            tipos_servicio_eval = list(current_provider_metrics['cnt'].index)
+            # Asegúrate de que 'cnt' existe y tiene un índice para tipos_servicio_eval
+            tipos_servicio_eval = []
+            if 'cnt' in current_provider_metrics and not current_provider_metrics['cnt'].empty:
+                tipos_servicio_eval = list(current_provider_metrics['cnt'].index)
+            else:
+                st.warning("No se encontraron tipos de servicio para evaluar. Asegúrate de que los datos de servicio estén presentes.")
+                tipos_servicio_eval = ["Servicio Desconocido"] # Proporcionar un valor predeterminado para evitar errores
 
             # Paginación para las preguntas de evaluación
             eval_services_per_page = 5
             eval_num_pages = len(tipos_servicio_eval) // eval_services_per_page + int(len(tipos_servicio_eval) % eval_services_per_page > 0)
+            if eval_num_pages == 0: # Caso para cuando no hay servicios
+                eval_num_pages = 1
 
             # Botones de navegación para las páginas de evaluación
             eval_col1, eval_col2, eval_col3 = st.columns([1, 1, 5])
@@ -774,12 +835,12 @@ if df is not None:
                 if st.session_state.current_eval_page > 0:
                     if st.button("Página Anterior Evaluación", key="prev_eval_page"):
                         st.session_state.current_eval_page -= 1
-                        # Streamlit se recargará automáticamente al cambiar el estado
+                        st.rerun() # Para recargar la página y aplicar el cambio de estado
             with eval_col2:
                 if st.session_state.current_eval_page < eval_num_pages - 1:
                     if st.button("Página Siguiente Evaluación", key="next_eval_page"):
                         st.session_state.current_eval_page += 1
-                        # Streamlit se recargará automáticamente al cambiar el estado
+                        st.rerun() # Para recargar la página y aplicar el cambio de estado
             with eval_col3:
                 st.markdown(f"Página de Evaluación {st.session_state.current_eval_page + 1} de {eval_num_pages}")
 
@@ -794,17 +855,21 @@ if df is not None:
                     question_key = (cat, texto, tipo_servicio)
                     if escala == "auto":
                         st.write(f"**[{cat}] {texto}**")
-                        if "Disponibilidad" in texto and tipo_servicio in current_provider_metrics['disp']:
-                            val = current_provider_metrics['disp'][tipo_servicio]
-                            st.metric("Disponibilidad (%)", f"{val:.2f}" if not pd.isna(val) else "N/A")
-                        elif "MTTR" in texto and tipo_servicio in current_provider_metrics['mttr']:
-                            val = current_provider_metrics['mttr'][tipo_servicio]
-                            st.metric("MTTR (hrs)", f"{val:.2f}" if not pd.isna(val) else "N/A")
-                        elif "MTBF" in texto and tipo_servicio in current_provider_metrics['mtbf']:
-                            val = current_provider_metrics['mtbf'][tipo_servicio]
-                            st.metric("MTBF (hrs)", f"{val:.2f}" if not pd.isna(val) else "N/A")
-                        elif "Rendimiento" in texto and tipo_servicio in current_provider_metrics['rend']:
-                            st.write(f"Rendimiento: **{current_provider_metrics['rend'][tipo_servicio]}**")
+                        # Asegúrate de que los tipos de servicio existan en las métricas
+                        if tipo_servicio in current_provider_metrics['disp'].index:
+                            if "Disponibilidad" in texto:
+                                val = current_provider_metrics['disp'][tipo_servicio]
+                                st.metric("Disponibilidad (%)", f"{val:.2f}" if not pd.isna(val) else "N/A")
+                            elif "MTTR" in texto:
+                                val = current_provider_metrics['mttr'][tipo_servicio]
+                                st.metric("MTTR (hrs)", f"{val:.2f}" if not pd.isna(val) else "N/A")
+                            elif "MTBF" in texto:
+                                val = current_provider_metrics['mtbf'][tipo_servicio]
+                                st.metric("MTBF (hrs)", f"{val:.2f}" if not pd.isna(val) else "N/A")
+                            elif "Rendimiento" in texto:
+                                st.write(f"Rendimiento: **{current_provider_metrics['rend'][tipo_servicio]}**")
+                        else:
+                            st.info(f"No hay datos de métricas automáticas para el servicio '{tipo_servicio}'.")
                     else:
                         options = ["Sobresaliente (2)", "Bueno (1)", "Indiferente (0)", "Malo (-1)"]
                         default_index = 2  # Predeterminado a Indiferente (0)
@@ -841,6 +906,9 @@ if df is not None:
                 ax.set_xlabel('Rendimiento')
                 ax.set_ylabel('Número de Servicios')
                 st.pyplot(fig)
+            else:
+                st.info("No hay datos de rendimiento disponibles para graficar.")
+
 
             # --- Gráficos de Resumen de Métricas (MTTR, MTBF, Disponibilidad) ---
             st.subheader("Resumen de Métricas Técnicas por Servicio")
@@ -952,7 +1020,7 @@ if df is not None:
                     st.success("Resumen generado exitosamente.")
                     buffer_summary.seek(0)
                     st.download_button(
-                        "Descargar resumen en Excel",
+                        "💾 Descargar resumen en Excel",
                         buffer_summary.getvalue(),
                         file_name=output_filename_summary,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
