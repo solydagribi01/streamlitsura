@@ -87,15 +87,7 @@ with st.container():
         """
         Realiza filtrado, ajuste de costos y normalización de columnas en el DataFrame.
         """
-        # Filtrar 'PTBO' del Status del sistema
-        df = df[~df["status_del_sistema"].astype(str).str.contains("PTBO", case=False, na=False)].copy()
-
-        # Ajustar costos duplicados por Aviso
-        df['costes_totreales'] = df.groupby('aviso')['costes_totreales'].transform(
-            lambda x: [x.iloc[0]] + [0]*(len(x)-1) if not x.empty else x
-        )
-
-        # --- Normalizar nombres de columnas ---
+        # --- Normalizar nombres de columnas ANTES de cualquier filtrado/operación ---
         column_mapping = {
             "Denominación ejecutante": "denominacion_ejecutante",
             "Código postal": "codigo_postal",
@@ -111,7 +103,7 @@ with st.container():
             "Duración de parada": "duracion_de_parada",
             "Equipo": "equipo",
             "Aviso": "aviso",
-            "Status del sistema": "status_del_sistema",
+            "Status del sistema": "status_del_sistema", # Asegúrate de que este mapeo exista
             "Ubicación técnica": "ubicacion_tecnica",
             "Indicador": "indicador",
             "Centro de coste": "centro_de_coste",
@@ -119,7 +111,7 @@ with st.container():
             "Fin garantía prov.": "fin_garantia_prov",
             "Indicador ABC": "indicador_abc",
             "Texto grupo acción": "texto_grupo_accion",
-            "Orden": "orden", # Add 'Orden' for completeness
+            "Orden": "orden",
         }
 
         normalized_df_columns = []
@@ -131,20 +123,36 @@ with st.container():
                     found_match = True
                     break
             if not found_match:
-                # Fallback for columns not explicitly mapped
+                # Fallback para columnas no mapeadas explícitamente
                 normalized_df_columns.append(
                     col.lower().strip().replace(" ", "_").replace(".", "")
                     .replace("á", "a").replace("é", "e").replace("í", "i")
-                    .replace("ó", "o").replace("ú", "u").replace("ñ", "n") # Handle ñ as well
+                    .replace("ó", "o").replace("ú", "u").replace("ñ", "n")
                 )
         df.columns = normalized_df_columns
+        
+        # Ahora que las columnas están normalizadas, podemos filtrar
+        # Filtrar 'PTBO' del Status del sistema
+        if 'status_del_sistema' in df.columns:
+            df = df[~df["status_del_sistema"].astype(str).str.contains("PTBO", case=False, na=False)].copy()
+        else:
+            st.warning("La columna 'Status del sistema' (status_del_sistema) no se encontró en el archivo, el filtrado 'PTBO' no se aplicará.")
+
+
+        # Ajustar costos duplicados por Aviso
+        if 'aviso' in df.columns and 'costes_totreales' in df.columns:
+            df['costes_totreales'] = df.groupby('aviso')['costes_totreales'].transform(
+                lambda x: [x.iloc[0]] + [0]*(len(x)-1) if not x.empty else x
+            )
+        else:
+            st.warning("Columnas 'Aviso' o 'Costes tot.reales' no encontradas para el ajuste de costos duplicados.")
 
         # --- Asignar nombres más simples para uso posterior ---
         # Asegurarse de que estas columnas existan antes de asignarlas
         if 'denominacion_ejecutante' in df.columns:
             df['PROVEEDOR'] = df['denominacion_ejecutante']
         else:
-            df['PROVEEDOR'] = np.nan # Or handle as error/missing column
+            df['PROVEEDOR'] = np.nan
 
         if 'costes_totreales' in df.columns:
             df['COSTO'] = pd.to_numeric(df['costes_totreales'], errors='coerce')
