@@ -258,6 +258,10 @@ with st.container():
         # Asegurarse de que estas columnas existan antes de asignarlas
         df['PROVEEDOR'] = df['denominacion_ejecutante'] if 'denominacion_ejecutante' in df.columns else np.nan
         df['COSTO'] = pd.to_numeric(df['costes_totreales'], errors='coerce') if 'costes_totreales' in df.columns else np.nan
+        # Rellenar los valores nulos en 'COSTO' con 0
+        df['COSTO'] = df['COSTO'].fillna(0)
+
+
         df['TIEMPO PARADA'] = pd.to_numeric(df['duracion_de_parada'], errors='coerce') if 'duracion_de_parada' in df.columns else np.nan
         df['EQUIPO_NUM'] = pd.to_numeric(df['equipo'], errors='coerce') if 'equipo' in df.columns else np.nan
         df['AVISO_NUM'] = pd.to_numeric(df['aviso'], errors='coerce') if 'aviso' in df.columns else np.nan
