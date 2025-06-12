@@ -100,8 +100,9 @@ with st.container():
         rename_in_load = {}
         if 'texto' in tmp4.columns:
             rename_in_load['texto'] = "texto_equipo" # Renombra 'texto' (normalizado) a 'texto_equipo'
+        # CORRECCIÓN: Usar 'costes_totreales' sin guion bajo para consistencia
         if 'total_general_real' in tmp4.columns:
-            rename_in_load['total_general_real'] = "costes_tot_reales" # Renombra 'total_general_real' (normalizado) a 'costes_tot_reales'
+            rename_in_load['total_general_real'] = "costes_totreales" 
 
         tmp4.rename(columns=rename_in_load, inplace=True)
         
@@ -110,13 +111,19 @@ with st.container():
             "aviso", "orden", "fecha_de_aviso", "codigo_postal", "status_del_sistema",
             "descripcion", "ubicacion_tecnica", "indicador", "equipo",
             "denominacion_de_objeto_tecnico", "denominacion_ejecutante", "duracion_de_parada",
-            "centro_de_coste", "costes_tot_reales", "inic_garantia_prov", "fin_garantia_prov",
+            "centro_de_coste", "costes_totreales", "inic_garantia_prov", "fin_garantia_prov", # CORRECCIÓN: 'costes_totreales'
             "texto_equipo", "indicador_abc", "texto_codigo_accion", "texto_de_accion",
             "texto_grupo_accion", "tipo_de_servicio"
         ]
         
         # Filtrar columnas que existen en tmp4
         columnas_finales = [col for col in columnas_finales_expected if col in tmp4.columns]
+        
+        # Advertencia si alguna columna crítica no se encuentra en este punto
+        for col_expected in ["denominacion_de_objeto_tecnico", "costes_totreales"]:
+            if col_expected not in columnas_finales:
+                st.warning(f"La columna crítica '{col_expected}' no se encontró después de la fusión inicial en load_and_merge_data. Por favor, revisa el nombre de la columna en tus archivos Excel.")
+
         return tmp4[columnas_finales]
 
     @st.cache_data
@@ -126,7 +133,6 @@ with st.container():
         """
         # Define el mapeo de columnas proporcionado por el usuario
         # Las claves deben coincidir con los nombres de las columnas que salen de load_and_merge_data
-        # (es decir, ya están con espacios eliminados y con los renombramientos iniciales como 'Costes tot.reales')
         user_column_mapping = {
             "Denominación ejecutante": "denominacion_ejecutante",
             "Código postal": "codigo_postal",
@@ -134,7 +140,7 @@ with st.container():
             "Texto código acción": "texto_codigo_accion",
             "Texto de acción": "texto_de_accion",
             "Tipo de servicio": "tipo_de_servicio",
-            "Costes tot.reales": "costes_totreales",
+            "Costes tot.reales": "costes_totreales", # CORRECCIÓN: coincide con el nombre de la columna normalizado
             "Descripción": "descripcion",
             "Fecha de aviso": "fecha_de_aviso",
             "Texto de Posición": "texto_de_posicion",
@@ -157,14 +163,16 @@ with st.container():
         final_renames = {}
         for original_key, target_col_name in user_column_mapping.items():
             # Convertir el nombre original a la forma normalizada para buscar en el DataFrame
-            normalized_original_key = normalize_string(original_key)
-            if normalized_original_key in df.columns:
-                final_renames[normalized_original_key] = target_col_name
-            else:
-                st.warning(f"La columna esperada '{original_key}' (normalizada como '{normalized_original_key}') no se encontró en el DataFrame de entrada. Se creará '{target_col_name}' con valores nulos si es necesario.")
-                # Asegurarse de que la columna destino exista, incluso si la original no
+            # NOTA: Los nombres de las columnas en 'df' ya están normalizados desde load_and_merge_data
+            # Así que buscamos 'target_col_name' en 'df.columns' y luego lo mapeamos si es diferente
+            if normalize_string(original_key) in df.columns and normalize_string(original_key) != target_col_name:
+                final_renames[normalize_string(original_key)] = target_col_name
+            elif normalize_string(original_key) not in df.columns:
+                 # Si la columna original no está, y la de destino tampoco, la creamos
                 if target_col_name not in df.columns:
                     df[target_col_name] = np.nan
+                    st.warning(f"La columna '{original_key}' no se encontró en los datos. Se creó '{target_col_name}' con valores nulos.")
+
 
         df = df.rename(columns=final_renames, errors='ignore')
 
@@ -357,9 +365,12 @@ if df is not None:
 
         ttot = df_sub_filtered_copy.groupby('tipo_de_servicio').apply(
             lambda g: (g['DIAS/ AÑO'].mean() * g['HORA/ DIA'].mean()) if not g['DIAS/ AÑO'].isnull().all() and not g['HORA/ DIA'].isnull().all() else np.nan
-        ).astype(float) # Forzar a float para asegurar tipo numérico
+        )
+        ttot = pd.to_numeric(ttot, errors='coerce') # Convertir a numérico de forma robusta
 
-        down = df_sub_filtered_copy.groupby('tipo_de_servicio')['TIEMPO PARADA'].sum().astype(float) # Forzar a float para asegurar tipo numérico
+        down = df_sub_filtered_copy.groupby('tipo_de_servicio')['TIEMPO PARADA'].sum()
+        down = pd.to_numeric(down, errors='coerce') # Convertir a numérico de forma robusta
+        
         fails = df_sub_filtered_copy.groupby('tipo_de_servicio')['AVISO_NUM'].count() # Usar nombre normalizado
         
         # Evitar división por cero
@@ -389,9 +400,12 @@ if df is not None:
         
         ttot = equipo_group.apply(
             lambda g: (g['DIAS/ AÑO'].mean() * g['HORA/ DIA'].mean()) if not g['DIAS/ AÑO'].isnull().all() and not g['HORA/ DIA'].isnull().all() else np.nan
-        ).astype(float) # Forzar a float para asegurar tipo numérico
+        )
+        ttot = pd.to_numeric(ttot, errors='coerce') # Convertir a numérico de forma robusta
 
-        down = equipo_group['TIEMPO PARADA'].sum().astype(float) # Forzar a float para asegurar tipo numérico
+        down = equipo_group['TIEMPO PARADA'].sum()
+        down = pd.to_numeric(down, errors='coerce') # Convertir a numérico de forma robusta
+        
         fails = equipo_group['AVISO_NUM'].count()
         
         # Evitar división por cero
