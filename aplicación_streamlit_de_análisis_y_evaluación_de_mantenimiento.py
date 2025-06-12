@@ -54,93 +54,178 @@ with st.container():
         iw65 = pd.read_excel(xls, sheet_name=3)
         zpm015 = pd.read_excel(xls, sheet_name=4)
 
-        # Limpiar y normalizar encabezados de todas las hojas inmediatamente
-        for df_temp in (iw29, iw39, ih08, iw65, zpm015):
+        # Creando copias profundas para asegurar que las modificaciones no afecten los objetos originales
+        dfs = [iw29.copy(), iw39.copy(), ih08.copy(), iw65.copy(), zpm015.copy()]
+        iw29_clean, iw39_clean, ih08_clean, iw65_clean, zpm015_clean = dfs
+
+        # Limpiar y normalizar encabezados de todas las copias de las hojas inmediatamente
+        for df_temp in dfs:
             df_temp.columns = [normalize_string(col) for col in df_temp.columns]
 
         # DEBUG: Mostrar columnas de cada hoja después de la carga inicial y normalización
-        st.info(f"Columnas de IW29 (normalizadas): {iw29.columns.tolist()}")
-        st.info(f"Columnas de IW39 (normalizadas): {iw39.columns.tolist()}")
-        st.info(f"Columnas de IH08 (normalizadas): {ih08.columns.tolist()}")
-        st.info(f"Columnas de IW65 (normalizadas): {iw65.columns.tolist()}")
-        st.info(f"Columnas de ZPM015 (normalizadas): {zpm015.columns.tolist()}")
+        st.info(f"Columnas de IW29 (normalizadas): {iw29_clean.columns.tolist()}")
+        st.info(f"Columnas de IW39 (normalizadas): {iw39_clean.columns.tolist()}")
+        st.info(f"Columnas de IH08 (normalizadas): {ih08_clean.columns.tolist()}")
+        st.info(f"Columnas de IW65 (normalizadas): {iw65_clean.columns.tolist()}")
+        st.info(f"Columnas de ZPM015 (normalizadas): {zpm015_clean.columns.tolist()}")
         
-        # Verificar la presencia de columnas críticas después de la carga individual
-        if 'denominacion_de_objeto_tecnico' not in ih08.columns:
-            st.warning("La columna 'denominacion_de_objeto_tecnico' no se encontró en la hoja IH08. Asegúrate de que el nombre sea correcto.")
-        if 'total_general_real' not in iw39.columns:
-            st.warning("La columna 'total_general_real' no se encontró en la hoja IW39. Asegúrate de que el nombre sea correcto.")
+        # Asegurar que las columnas clave de fusión son de tipo cadena
+        for df_temp in [iw29_clean, iw39_clean, ih08_clean, iw65_clean, zpm015_clean]:
+            if 'aviso' in df_temp.columns: df_temp['aviso'] = df_temp['aviso'].astype(str)
+            if 'equipo' in df_temp.columns: df_temp['equipo'] = df_temp['equipo'].astype(str)
 
-        # Asegurar que 'aviso' y 'equipo' son tratados como texto si contienen valores mixtos
-        if 'aviso' in iw29.columns: iw29['aviso'] = iw29['aviso'].astype(str)
-        if 'equipo' in iw29.columns: iw29['equipo'] = iw29['equipo'].astype(str)
-        if 'aviso' in iw39.columns: iw39['aviso'] = iw39['aviso'].astype(str)
-        if 'aviso' in iw65.columns: iw65['aviso'] = iw65['aviso'].astype(str)
-        if 'equipo' in ih08.columns: ih08['equipo'] = ih08['equipo'].astype(str)
-        if 'equipo' in zpm015.columns: zpm015['equipo'] = zpm015['equipo'].astype(str)
+        # Mapeo de columnas originales a nombres normalizados para evitar duplicados temporales antes de consolidar
+        # y para asegurar que 'total_general_real' se convierta en 'costes_totreales'
+        if 'denominacion_de_objeto_tecnico' in iw29_clean.columns:
+            iw29_clean.rename(columns={'denominacion_de_objeto_tecnico': 'dot_iw29'}, inplace=True)
+        if 'denominacion_de_objeto_tecnico' in iw39_clean.columns:
+            iw39_clean.rename(columns={'denominacion_de_objeto_tecnico': 'dot_iw39'}, inplace=True)
+        if 'total_general_real' in iw39_clean.columns:
+            iw39_clean.rename(columns={'total_general_real': 'costes_totreales'}, inplace=True) # Renombrado directo para el costo principal
+        if 'denominacion_de_objeto_tecnico' in ih08_clean.columns:
+            ih08_clean.rename(columns={'denominacion_de_objeto_tecnico': 'dot_ih08'}, inplace=True)
+        if 'texto' in ih08_clean.columns: # 'texto' en IH08 se convierte a 'texto_equipo'
+            ih08_clean.rename(columns={'texto': 'texto_equipo'}, inplace=True)
+        if 'denominacion_de_objeto_tecnico' in iw65_clean.columns:
+            iw65_clean.rename(columns={'denominacion_de_objeto_tecnico': 'dot_iw65'}, inplace=True)
+        
+        # Si ZPM015 tiene 'denominacion_objeto' y no 'denominacion_de_objeto_tecnico' en su forma normalizada
+        if 'denominacion_objeto' in zpm015_clean.columns and 'denominacion_de_objeto_tecnico' not in zpm015_clean.columns:
+            zpm015_clean.rename(columns={'denominacion_objeto': 'dot_zpm015'}, inplace=True)
+        elif 'denominacion_de_objeto_tecnico' in zpm015_clean.columns:
+             zpm015_clean.rename(columns={'denominacion_de_objeto_tecnico': 'dot_zpm015'}, inplace=True) # Rename if already normalized
 
-        # Usar nombres de columnas normalizados para la selección y fusión
+
         # Define una función helper para obtener columnas de forma segura
         def get_cols_if_exist(df, cols_list):
             return [col for col in cols_list if col in df.columns]
 
-        equipo_original_cols = get_cols_if_exist(iw29, ["aviso", "equipo", "duracion_de_parada", "descripcion"])
-        equipo_original = iw29[equipo_original_cols].copy()
+        # Iniciar con IW29 como base
+        final_df = iw29_clean.copy()
 
-        iw39_subset_cols = get_cols_if_exist(iw39, ["aviso", "total_general_real"])
-        iw39_subset = iw39[iw39_subset_cols]
+        # Fusión con IW39 (por 'aviso')
+        iw39_merge_cols = get_cols_if_exist(iw39_clean, ['aviso', 'orden', 'costes_totreales', 'dot_iw39', 'fecha_entrada', 'texto_breve', 'tota_general_plan', 'centro_de_coste', 'denominacion_de_la_ubicacion_tecnica'])
+        final_df = pd.merge(final_df, iw39_clean[iw39_merge_cols], on='aviso', how='left', suffixes=('', '_iw39'))
 
-        tmp1 = pd.merge(iw29, iw39_subset, on="aviso", how="left")
-        tmp2 = pd.merge(tmp1, iw65, on="aviso", how="left")
+        # Fusión con IW65 (por 'aviso')
+        iw65_merge_cols = get_cols_if_exist(iw65_clean, ['aviso', 'texto_codigo_accion', 'texto_de_accion', 'descripcion', 'nº_direccion', 'grupo_codigos', 'texto_grupo_accion', 'posicion', 'actividad', 'codigo_de_actividad', 'dot_iw65'])
+        # Handle 'descripcion' overlap: keep IW29's first, then IW65's
+        if 'descripcion_iw65_merge' in final_df.columns:
+            final_df['descripcion'] = final_df['descripcion'].fillna(final_df['descripcion_iw65_merge'])
+            final_df.drop(columns=['descripcion_iw65_merge'], errors='ignore', inplace=True)
+
+        final_df = pd.merge(final_df, iw65_clean[iw65_merge_cols], on='aviso', how='left', suffixes=('', '_iw65'))
         
-        # 'equipo' se eliminó en el merge anterior, si está duplicado
-        if 'equipo' in tmp2.columns:
-            tmp2.drop(columns=["equipo"], errors='ignore', inplace=True) 
-        tmp2 = pd.merge(tmp2, equipo_original, on="aviso", how="left")
-
-        ih08_cols_to_merge = get_cols_if_exist(ih08, [
-            "equipo", "inic_garantia_prov", "fin_garantia_prov", "texto",
-            "indicador_abc", "denominacion_de_objeto_tecnico"
+        # Fusión con IH08 (por 'equipo')
+        ih08_merge_cols = get_cols_if_exist(ih08_clean, [
+            'equipo', 'inic_garantia_prov', 'fin_garantia_prov', 'texto_equipo',
+            'indicador_abc', 'dot_ih08', 'centro_de_coste', 'denominacion_de_la_ubicacion_tecnica',
+            'fabricante_del_activo_fijo', 'denominacion_de_tipo', 'fabricante_numero_de_serie',
+            'numero_de_inventario', 'numero_de_pieza_de_fabricante', 'numero_identificacion_tecnica',
+            'cl_objeto_tecnico', 'valor_de_adquisicion', 'fecha_de_adquisicion',
+            'tamano_dimension', 'existe_txt_expl'
         ])
-        tmp3 = pd.merge(tmp2, ih08[ih08_cols_to_merge], on="equipo", how="left")
-
-        zpm015_cols_to_merge = get_cols_if_exist(zpm015, ["equipo", "tipo_de_servicio"])
-        tmp4 = pd.merge(tmp3, zpm015[zpm015_cols_to_merge], on="equipo", how="left")
-
-        # Renombrar columnas específicas a nombres más consistentes para el merge
-        # Estos son los nombres normalizados de las hojas de Excel
-        rename_in_load = {}
-        if 'texto' in tmp4.columns:
-            rename_in_load['texto'] = "texto_equipo" # Renombra 'texto' (normalizado) a 'texto_equipo'
-        # CORRECCIÓN: Usar 'costes_totreales' sin guion bajo para consistencia
-        if 'total_general_real' in tmp4.columns:
-            rename_in_load['total_general_real'] = "costes_totreales" 
-
-        tmp4.rename(columns=rename_in_load, inplace=True)
+        # Handle 'centro_de_coste' overlap: prefer IH08 if present, otherwise IW39
+        if 'centro_de_coste_iw39' in final_df.columns and 'centro_de_coste' in ih08_clean.columns:
+            ih08_clean.rename(columns={'centro_de_coste': 'centro_de_coste_ih08'}, inplace=True)
+            ih08_merge_cols.remove('centro_de_coste')
+            ih08_merge_cols.append('centro_de_coste_ih08')
         
-        # Las columnas finales esperadas después de todas las fusiones y renombramientos iniciales
-        columnas_finales_expected = [
-            "aviso", "orden", "fecha_de_aviso", "codigo_postal", "status_del_sistema",
-            "descripcion", "ubicacion_tecnica", "indicador", "equipo",
-            "denominacion_de_objeto_tecnico", "denominacion_ejecutante", "duracion_de_parada",
-            "centro_de_coste", "costes_totreales", "inic_garantia_prov", "fin_garantia_prov", 
-            "texto_equipo", "indicador_abc", "texto_codigo_accion", "texto_de_accion",
-            "texto_grupo_accion", "tipo_de_servicio"
+        final_df = pd.merge(final_df, ih08_clean[ih08_merge_cols], on='equipo', how='left', suffixes=('', '_ih08'))
+        
+        # Fusión con ZPM015 (por 'equipo')
+        zpm015_merge_cols = get_cols_if_exist(zpm015_clean, [
+            'equipo', 'tipo_de_servicio', 'texto_cl_objeto', 'denom_ubic_tecnica',
+            'ubicacion_tecnica', 'dot_zpm015', 'fabricante', 'tipo_de_equipo', 'ubicaciones_puntual'
+        ])
+        final_df = pd.merge(final_df, zpm015_clean[zpm015_merge_cols], on='equipo', how='left', suffixes=('', '_zpm015'))
+
+        # Consolidar 'denominacion_de_objeto_tecnico' (DOT)
+        # Priorizar: IW29 > IH08 > IW39 > IW65 > ZPM015 (denominacion_objeto)
+        final_df['denominacion_de_objeto_tecnico'] = final_df['dot_iw29']
+        if 'dot_ih08' in final_df.columns:
+            final_df['denominacion_de_objeto_tecnico'].fillna(final_df['dot_ih08'], inplace=True)
+        if 'dot_iw39' in final_df.columns:
+            final_df['denominacion_de_objeto_tecnico'].fillna(final_df['dot_iw39'], inplace=True)
+        if 'dot_iw65' in final_df.columns:
+            final_df['denominacion_de_objeto_tecnico'].fillna(final_df['dot_iw65'], inplace=True)
+        if 'dot_zpm015' in final_df.columns:
+            final_df['denominacion_de_objeto_tecnico'].fillna(final_df['dot_zpm015'], inplace=True)
+
+
+        # Consolidar 'costes_totreales': La principal fuente es IW39 ('total_general_real')
+        # Ya ha sido renombrada directamente en iw39_clean a 'costes_totreales'
+        # No se necesita consolidación adicional a menos que otra hoja tuviera una columna de "costo total" alternativa.
+        # Si 'costes_totreales_iw39' existe, se usa, de lo contrario, se mantiene el actual (que puede ser del merge anterior o NaN)
+        if 'costes_totreales_iw39' in final_df.columns:
+            final_df['costes_totreales'] = final_df['costes_totreales'].fillna(final_df['costes_totreales_iw39'])
+            final_df.drop(columns=['costes_totreales_iw39'], errors='ignore', inplace=True)
+        
+        # Consolidar 'ubicacion_tecnica'
+        # Priorizar: IW29 > ZPM015 ('ubicacion_tecnica') > IH08 ('denominacion_de_la_ubicacion_tecnica')
+        if 'ubicacion_tecnica_zpm015' in final_df.columns:
+            final_df['ubicacion_tecnica'].fillna(final_df['ubicacion_tecnica_zpm015'], inplace=True)
+            final_df.drop(columns=['ubicacion_tecnica_zpm015'], errors='ignore', inplace=True)
+        if 'denominacion_de_la_ubicacion_tecnica_ih08' in final_df.columns:
+            final_df['ubicacion_tecnica'].fillna(final_df['denominacion_de_la_ubicacion_tecnica_ih08'], inplace=True)
+            final_df.drop(columns=['denominacion_de_la_ubicacion_tecnica_ih08'], errors='ignore', inplace=True)
+        if 'denominacion_de_la_ubicacion_tecnica_iw39' in final_df.columns:
+             final_df['ubicacion_tecnica'].fillna(final_df['denominacion_de_la_ubicacion_tecnica_iw39'], inplace=True)
+             final_df.drop(columns=['denominacion_de_la_ubicacion_tecnica_iw39'], errors='ignore', inplace=True)
+        if 'denominacion_de_la_ubicacion_tecnica_iw65' in final_df.columns:
+            final_df['ubicacion_tecnica'].fillna(final_df['denominacion_de_la_ubicacion_tecnica_iw65'], inplace=True)
+            final_df.drop(columns=['denominacion_de_la_ubicacion_tecnica_iw65'], errors='ignore', inplace=True)
+
+        # Consolidar 'centro_de_coste'
+        # Priorizar: IH08 > IW39 > ZPM015 (if 'centro_de_coste_zpm015' exists)
+        if 'centro_de_coste_ih08' in final_df.columns:
+            final_df['centro_de_coste'] = final_df['centro_de_coste'].fillna(final_df['centro_de_coste_ih08'])
+            final_df.drop(columns=['centro_de_coste_ih08'], errors='ignore', inplace=True)
+        if 'centro_de_coste_iw39' in final_df.columns:
+            final_df['centro_de_coste'] = final_df['centro_de_coste'].fillna(final_df['centro_de_coste_iw39'])
+            final_df.drop(columns=['centro_de_coste_iw39'], errors='ignore', inplace=True)
+        if 'centro_de_coste_zpm015' in final_df.columns:
+            final_df['centro_de_coste'] = final_df['centro_de_coste'].fillna(final_df['centro_de_coste_zpm015'])
+            final_df.drop(columns=['centro_de_coste_zpm015'], errors='ignore', inplace=True)
+
+        # Limpiar columnas temporales de DOT si no se han eliminado
+        final_df.drop(columns=[col for col in ['dot_iw29', 'dot_ih08', 'dot_iw39', 'dot_iw65', 'dot_zpm015'] if col in final_df.columns], errors='ignore', inplace=True)
+        
+        # Define la lista completa de columnas esperadas en el DataFrame final
+        # Asegurarse de que no haya duplicados y que los nombres sean los finales y normalizados.
+        final_column_names = [
+            'aviso', 'orden', 'fecha_de_aviso', 'hora_del_aviso', 'region', 'codigo_postal',
+            'status_del_sistema', 'clase_de_aviso', 'texto_para_prioridad', 'status_de_usuario',
+            'descripcion', 'duracion_de_parada', 'ubicacion_tecnica', 'cierre_por_fecha',
+            'fin_deseado', 'fecha_de_pedido', 'indicador_abc', 'equipo',
+            'denominacion_de_objeto_tecnico', 'denominacion_ejecutante', 'centro_de_coste',
+            'costes_totreales', 'inic_garantia_prov', 'fin_garantia_prov', 'texto_equipo',
+            'texto_codigo_accion', 'texto_de_accion', 'texto_grupo_accion',
+            'tipo_de_servicio', 'fecha_entrada', 'texto_breve', 'tota_general_plan',
+            'nº_direccion', 'grupo_codigos', 'posicion', 'actividad', 'codigo_de_actividad',
+            'grupo_codigos_1', 'fabricante_del_activo_fijo', 'denominacion_de_tipo',
+            'fabricante_numero_de_serie', 'numero_de_inventario', 'numero_de_pieza_de_fabricante',
+            'numero_identificacion_tecnica', 'cl_objeto_tecnico', 'valor_de_adquisicion',
+            'fecha_de_adquisicion', 'tamano_dimension', 'existe_txt_expl', 'texto_cl_objeto',
+            'denom_ubic_tecnica', 'denominacion_objeto', 'fabricante', 'tipo_de_equipo',
+            'ubicaciones_puntual', 'indicador' # 'indicador' not explicitly found in original lists but in previous code
         ]
-        
-        # Filtrar columnas que existen en tmp4
-        columnas_finales = [col for col in columnas_finales_expected if col in tmp4.columns]
-        
-        # Advertencia si alguna columna crítica no se encuentra en este punto
-        for col_expected in ["denominacion_de_objeto_tecnico", "costes_totreales"]:
-            if col_expected not in columnas_finales:
-                st.warning(f"La columna crítica '{col_expected}' no se encontró después de la fusión en load_and_merge_data. Esto podría afectar el análisis. Por favor, revisa el nombre de la columna en tus archivos Excel originales o si se perdieron datos en las fusiones.")
-            
-            # DEBUG: Mostrar el conteo de nulos para las columnas críticas después de las fusiones
-            if col_expected in tmp4.columns:
-                st.info(f"Conteo de nulos en '{col_expected}' después de las fusiones en load_and_merge_data: {tmp4[col_expected].isnull().sum()}")
 
-        return tmp4[columnas_finales]
+        # Asegurar que todas las columnas en final_column_names estén presentes en final_df
+        # Si no están, se añadirán con NaN.
+        for col in final_column_names:
+            if col not in final_df.columns:
+                final_df[col] = np.nan
+                # st.warning(f"La columna '{col}' no se encontró después de las fusiones. Se añadió con valores nulos.")
+
+        # Filtrar a solo las columnas deseadas y en el orden especificado
+        final_df = final_df[final_column_names].copy()
+
+        st.info(f"Columnas del DataFrame después de fusiones y consolidación: {final_df.columns.tolist()}")
+        st.info(f"Conteo de nulos en 'denominacion_de_objeto_tecnico' después de consolidación: {final_df['denominacion_de_objeto_tecnico'].isnull().sum()}")
+        st.info(f"Conteo de nulos en 'costes_totreales' después de consolidación: {final_df['costes_totreales'].isnull().sum()}")
+
+        return final_df
 
     @st.cache_data
     def process_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -151,20 +236,9 @@ with st.container():
         # DEBUG: Mostrar columnas del DataFrame al inicio de process_data
         st.info(f"Columnas del DataFrame al inicio de process_data: {df.columns.tolist()}")
 
-        # Asegurarse de que las columnas críticas existan (añadir con NaN si no están)
-        essential_columns = [
-            "denominacion_ejecutante", "codigo_postal", "denominacion_de_objeto_tecnico",
-            "texto_codigo_accion", "texto_de_accion", "tipo_de_servicio", "costes_totreales",
-            "descripcion", "fecha_de_aviso", "duracion_de_parada", "equipo", "aviso",
-            "status_del_sistema", "orden", "ubicacion_tecnica", "indicador",
-            "centro_de_coste", "inic_garantia_prov", "fin_garantia_prov", "indicador_abc",
-            "texto_grupo_accion", "texto_equipo" # Asegúrate que texto_equipo esté aquí si se espera
-        ]
-        for col in essential_columns:
-            if col not in df.columns:
-                df[col] = np.nan
-                st.warning(f"La columna '{col}' no se encontró en los datos procesados inicialmente. Se añadió con valores nulos.")
-
+        # Las columnas esenciales ya deberían haber sido manejadas en load_and_merge_data,
+        # pero mantenemos esta comprobación como un fallback y para asignar nombres amigables.
+        
         # Filtrar 'PTBO' del Status del sistema
         if 'status_del_sistema' in df.columns:
             df = df[~df["status_del_sistema"].astype(str).str.contains("PTBO", case=False, na=False)].copy()
@@ -529,6 +603,149 @@ if df is not None:
             ("Postventa", "¿Realiza seguimiento a los resultados de los trabajos?", "2,1,0,-1"),
             ("Postventa", "¿Ofrece capacitaciones para el manejo de los equipos?", "2,1,0,-1"),
             ("Postventa", "¿Los métodos de capacitación ofrecidos son efectivos y adecuados?", "2,1,0,-1"),
+            ("Desempeño técnico", "Disponibilidad promedio (%)", "auto"),
+            ("Desempeño técnico", "MTTR promedio (hrs)", "auto"),
+            ("Desempeño técnico", "MTBF promedio (hrs)", "auto"),
+            ("Desempeño técnico", "Rendimiento promedio equipos", "auto"),
+        ]
+
+        # Rangos detallados para mostrar
+        rangos_detallados = {
+            "Calidad": {
+                "¿Las soluciones propuestas son coherentes con el diagnóstico y causa raíz del problema?": {
+                    2: "Total coherencia con el diagnóstico y causas identificadas",
+                    1: "Coherencia razonable, con pequeños ajustes necesarios",
+                    0: "Cumple con lo básico, pero con limitaciones relevantes",
+                    -1: "No guarda coherencia o es deficiente respecto al diagnóstico"
+                },
+                "¿El trabajo entregado tiene materiales nuevos, originales y de marcas reconocidas?": {
+                    2: "Todos los materiales son nuevos, originales y de marcas reconocidas",
+                    1: "La mayoría de los materiales cumplen esas condiciones",
+                    0: "Algunos materiales no son nuevos o no están certificados",
+                    -1: "Materiales genéricos, usados o sin respaldo de marca"
+                },
+                "¿Cuenta con acabados homogéneos, limpios y pulidos?": {
+                    2: "Acabados uniformes, bien presentados y profesionales",
+                    1: "En general, los acabados son aceptables y limpios",
+                    0: "Presenta inconsistencias notorias en algunos acabados",
+                    -1: "Acabados descuidados, sucios o sin terminación adecuada"
+                },
+                "¿El trabajo entregado corresponde completamente con lo contratado?": {
+                    2: "Cumple en su totalidad con lo contratado y acordado",
+                    1: "Cumple en gran parte con lo contratado, con mínimos desvíos",
+                    0: "Cumple con los requisitos mínimos establecidos",
+                    -1: "No corresponde con lo contratado o presenta deficiencias importantes"
+                },
+                "¿La facturación refleja correctamente lo ejecutado y acordado?": {
+                    2: "Facturación precisa, sin errores y con toda la información requerida",
+                    1: "Facturación con pequeños errores que no afectan el control",
+                    0: "Facturación con errores importantes (por ejemplo, precios)",
+                    -1: "Facturación incorrecta, incompleta o que requiere ser repetida"
+                }
+            },
+            "Oportunidad": {
+                "¿La entrega de cotizaciones fue oportuna, según el contrato?": {
+                    2: "Siempre entrega cotizaciones en los tiempos establecidos",
+                    1: "Generalmente cumple con los plazos establecidos",
+                    0: "A veces entrega fuera del tiempo estipulado",
+                    -1: "Frecuentemente incumple los tiempos o no entrega"
+                },
+                "¿El reporte del servicio fue entregado oportunamente, según el contrato?": {
+                    2: "Siempre entrega los reportes a tiempo, según lo acordado",
+                    1: "Entrega los reportes con mínimos retrasos",
+                    0: "Entrega con demoras ocasionales",
+                    -1: "Entrega tardía constante o no entrega"
+                },
+                "¿Cumple las fechas y horas programadas para los trabajos, según el contrato?": {
+                    2: "Puntualidad absoluta en fechas y horarios de ejecución",
+                    1: "Puntualidad general con excepciones menores",
+                    0: "Cumplimiento parcial o con retrasos frecuentes",
+                    -1: "Incumplimiento reiterado de horarios o fechas"
+                },
+                "¿Responde de forma efectiva ante eventualidades emergentes, según el contrato?": {
+                    2: "Respuesta inmediata y eficaz ante cualquier eventualidad",
+                    1: "Respuesta adecuada en la mayoría de los casos",
+                    0: "Respuesta tardía o poco efectiva en varias situaciones",
+                    -1: "No responde adecuadamente o ignora emergencias"
+                },
+                "¿Soluciona rápidamente reclamos o inquietudes por garantía, según el contrato?": {
+                    2: "Soluciona siempre con rapidez y eficacia",
+                    1: "Responde satisfactoriamente en la mayoría de los casos",
+                    0: "Respuesta variable, con demoras ocasionales",
+                    -1: "Soluciones lentas o sin resolver adecuadamente"
+                },
+                "¿Dispone de los repuestos requeridos en los tiempos necesarios, según el contrato?": {
+                    2: "Siempre cuenta con repuestos disponibles en el tiempo requerido",
+                    1: "Generalmente cumple con la disponibilidad de repuestos",
+                    0: "Disponibilidad intermitente o con retrasos",
+                    -1: "No garantiza disponibilidad o presenta retrasos constantes"
+                },
+                "¿Entrega las facturas en los tiempos convenidos, según el contrato?": {
+                    2: "Entrega siempre puntual de facturas",
+                    1: "Entrega generalmente puntual con pocas excepciones",
+                    0: "Entrega ocasionalmente fuera del tiempo acordado",
+                    -1: "Entrega tarde con frecuencia o no entrega"
+                }
+            },
+            "Precio": {
+                "¿Los precios ofrecidos para equipos son competitivos respecto al mercado?": {
+                    2: "Muy por debajo del precio promedio de mercado",
+                    1: "Por debajo del promedio de mercado",
+                    0: "Igual al promedio de mercado",
+                    -1: "Por encima del promedio de mercado"
+                },
+                "¿Los precios ofrecidos para repuestos son competitivos respecto al mercado?": {
+                    2: "Muy por debajo del precio promedio de mercado",
+                    1: "Por debajo del promedio de mercado",
+                    0: "Igual al promedio de mercado",
+                    -1: "Por encima del promedio de mercado"
+                },
+                "Facilita llegar a una negociación (precios)": {
+                    2: "Siempre está dispuesto a negociar de manera flexible",
+                    1: "En general muestra disposición al diálogo",
+                    0: "Ocasionalmente permite negociar",
+                    -1: "Poco o nada dispuesto a negociar"
+                },
+                "Pone en consideración contratos y trabajos adjudicados en el último periodo de tiempo": {
+                    2: "Siempre toma en cuenta la relación comercial previa",
+                    1: "Generalmente considera trabajos anteriores",
+                    0: "Solo ocasionalmente lo toma en cuenta",
+                    -1: "No muestra continuidad ni reconocimiento de antecedentes"
+                },
+                "¿Los precios ofrecidos para mantenimientos son competitivos respecto al mercado?": {
+                    2: "Muy por debajo del precio promedio de mercado",
+                    1: "Por debajo del promedio de mercado",
+                    0: "Igual al promedio de mercado",
+                    -1: "Por encima del promedio de mercado"
+                },
+                "¿Los precios ofrecidos para insumos son competitivos respecto al mercado?": {
+                    2: "Muy por debajo del precio promedio de mercado",
+                    1: "Por debajo del promedio de mercado",
+                    0: "Igual al promedio de mercado",
+                    -1: "Por encima del promedio de mercado"
+                }
+            },
+            "Postventa": {
+                "¿Tiene disposición y actitud de servicio frente a solicitudes?": {
+                    2: "Atención proactiva y excelente actitud de servicio",
+                    1: "Buena actitud y disposición general",
+                    0: "Actitud pasiva o limitada ante las solicitudes",
+                    -1: "Falta de disposición o actitudes negativas"
+                },
+                "¿Conoce necesidades y ofrece alternativas adecuadas?": {
+                    2: "Conocimiento profundo del cliente y propuestas adecuadas",
+                    1: "Buen conocimiento y alternativas en general adecuadas",
+                    0: "Soluciones parcialmente adecuadas",
+                    -1: "No se adapta a las necesidades o propone soluciones inadecuadas"
+                },
+                "¿Realiza seguimiento a los resultados de los trabajos?": {
+                    2: "Hace seguimiento sistemático y detallado",
+                    1: "Realiza seguimiento general adecuado",
+                    0: "Seguimiento ocasional o no documentado",
+                    -1: "No realiza seguimiento posterior"
+                },
+                "¿Ofrece capacitaciones para el manejo de los equipos?", "2,1,0,-1"),
+            ("Postventa", "¿Los métodos de capacitación ofrecidos son efectivos y adecuados?", "2,1,0,-1")
             ("Desempeño técnico", "Disponibilidad promedio (%)", "auto"),
             ("Desempeño técnico", "MTTR promedio (hrs)", "auto"),
             ("Desempeño técnico", "MTBF promedio (hrs)", "auto"),
