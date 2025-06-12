@@ -240,6 +240,7 @@ with st.container():
             df['DIAS/ AÑO'] = np.nan
 
         # Extraer año y mes para la aplicación CostosAvisosStreamlitApp
+        # CORRECCIÓN: Asegurar que 'mes' y 'año' se calculen correctamente, no se sobrescriban con np.nan
         if 'fecha_de_aviso' in df.columns:
             df['fecha_de_aviso'] = pd.to_datetime(df['fecha_de_aviso'], errors='coerce')
             df['año'] = df['fecha_de_aviso'].dt.year
@@ -322,9 +323,9 @@ if df is not None:
 
         ttot = df_sub_filtered_copy.groupby('TIPO DE SERVICIO').apply(
             lambda g: (g['DIAS/ AÑO'].mean() * g['HORA/ DIA'].mean()) if not g['DIAS/ AÑO'].isnull().all() and not g['HORA/ DIA'].isnull().all() else np.nan
-        )
+        ).astype(float) # Forzar a float para asegurar tipo numérico
 
-        down = df_sub_filtered_copy.groupby('TIPO DE SERVICIO')['TIEMPO PARADA'].sum()
+        down = df_sub_filtered_copy.groupby('TIPO DE SERVICIO')['TIEMPO PARADA'].sum().astype(float) # Forzar a float para asegurar tipo numérico
         fails = df_sub_filtered_copy.groupby('TIPO DE SERVICIO')['AVISO_NUM'].count()
         
         # Evitar división por cero
@@ -354,9 +355,9 @@ if df is not None:
         
         ttot = equipo_group.apply(
             lambda g: (g['DIAS/ AÑO'].mean() * g['HORA/ DIA'].mean()) if not g['DIAS/ AÑO'].isnull().all() and not g['HORA/ DIA'].isnull().all() else np.nan
-        )
+        ).astype(float) # Forzar a float para asegurar tipo numérico
 
-        down = equipo_group['TIEMPO PARADA'].sum()
+        down = equipo_group['TIEMPO PARADA'].sum().astype(float) # Forzar a float para asegurar tipo numérico
         fails = equipo_group['AVISO_NUM'].count()
         
         # Evitar división por cero
@@ -454,7 +455,7 @@ if df is not None:
                         if st.button("← Página anterior", key="prev_analysis_page"):
                             st.session_state.analysis_page -= 1
                             # Streamlit se recargará automáticamente al cambiar el estado
-                with col2:
+                with col_nav2: # CORRECCIÓN: Usar col_nav2 para el botón de siguiente página
                     if end < total_items:
                         if st.button("Página siguiente →", key="next_analysis_page"):
                             st.session_state.analysis_page += 1
